@@ -1,0 +1,65 @@
+[
+    {
+        "Model": "IsolationForest",
+        "AUC-ROC": 0.5751409372205799,
+        "PR-AUC": 0.0246591491648227,
+        "Top-K Hit Rate": 0.39,
+        "Avg Train Time (s)": 0.09485572099685669,
+        "Avg Predict Time (s)": 0.059476927518844605,
+        "Datasets Processed": 200
+    },
+    {
+        "Model": "ZScore",
+        "AUC-ROC": 0.5266032836795478,
+        "PR-AUC": 0.028755698582867594,
+        "Top-K Hit Rate": 0.4,
+        "Avg Train Time (s)": 0.00010627388954162598,
+        "Avg Predict Time (s)": 6.880640983581544e-05,
+        "Datasets Processed": 200
+    },
+    {
+        "Model": "LOF",
+        "AUC-ROC": 0.5643150475643135,
+        "PR-AUC": 0.04457894387229178,
+        "Top-K Hit Rate": 0.585,
+        "Avg Train Time (s)": 0.03256709933280945,
+        "Avg Predict Time (s)": 0.047805070877075195,
+        "Datasets Processed": 200
+    },
+    {
+        "Model": "MatrixProfile",
+        "AUC-ROC": 0.7713450609405187,
+        "PR-AUC": 0.15727149141286065,
+        "Top-K Hit Rate": 0.56,
+        "Avg Train Time (s)": 2.2220611572265626e-06,
+        "Avg Predict Time (s)": 0.6768268406391144,
+        "Datasets Processed": 200
+    },
+    {
+        "Model": "LSTM",
+        "AUC-ROC": 0.6484781808189893,
+        "PR-AUC": 0.1200927770923633,
+        "Top-K Hit Rate": 0.83,
+        "Avg Train Time (s)": 114.68320822119713,
+        "Avg Predict Time (s)": 2.717229002714157,
+        "Datasets Processed": 200
+    },
+    {
+        "Model": "Autoencoder",
+        "AUC-ROC": 0.6986203796221432,
+        "PR-AUC": 0.17305190755011723,
+        "Top-K Hit Rate": 0.605,
+        "Avg Train Time (s)": 8.266095592975617,
+        "Avg Predict Time (s)": 0.43614293575286867,
+        "Datasets Processed": 200
+    },
+    {
+        "Model": "TCN",
+        "AUC-ROC": 0.661942104741541,
+        "PR-AUC": 0.1349626154471421,
+        "Top-K Hit Rate": 0.86,
+        "Avg Train Time (s)": 94.1159400832653,
+        "Avg Predict Time (s)": 2.149024568796158,
+        "Datasets Processed": 200
+    }
+]
