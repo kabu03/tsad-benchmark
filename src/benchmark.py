@@ -1,5 +1,6 @@
 import time
 import os
+import mlflow
 
 # Suppress TensorFlow logs (MUST be before importing keras/tensorflow)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
@@ -109,7 +110,7 @@ def save_result(result, results_dir="results"):
                 
     return os.path.abspath(json_filename)
 
-def run_benchmark(models_to_run, num_datasets=250, progress_callback=None):
+def run_benchmark(models_to_run, num_datasets=250, progress_callback=None, exclude_heavy=False):
     """
     Modular function to run the benchmark.
     """
@@ -147,119 +148,151 @@ def run_benchmark(models_to_run, num_datasets=250, progress_callback=None):
     
     total_steps = len(models_to_run) * len(dataset_files)
     current_step = 0
+
+    # --- MLFLOW SETUP ---
+    mlflow.set_experiment("TSAD Benchmark")
     
     for model_name, ModelClass in models_to_run:
-        if progress_callback:
-            progress_callback(f"Processing Model: {model_name}")
-        else:
-            print(f"\nProcessing Model: {model_name}")
-        
-        dataset_metrics_agg = {
-            'sum_auc_roc': 0.0, 'sum_pr_auc': 0.0, 'sum_top_k': 0.0,
-            'total_train_time': 0.0, 'total_pred_time': 0.0,
-            'count': 0
-        }
-
-        for i, dataset_filename in enumerate(dataset_files):
-            current_step += 1
-            if progress_callback:
-                progress_callback(f"[{model_name}] Dataset {i+1}/{len(dataset_files)}")
-            else:
-                 print(f"  Dataset {i+1}/{len(dataset_files)}: {dataset_filename}")
+        with mlflow.start_run(run_name=f"{model_name}_Run"): 
             
-            dataset_filepath = os.path.join(dataset_folder, dataset_filename)
+            # Log Parameters (Configuration)
+            mlflow.log_param("model_class", model_name)
+            mlflow.log_param("dataset_count", len(dataset_files))
+            mlflow.log_param("exclude_heavy", exclude_heavy)
 
-            try:
-                all_data_df = prepare_dataset(dataset_filepath)
-                training_split_idx = extract_training_split_from_filename(dataset_filename)
-                train_df = all_data_df.iloc[:training_split_idx]
-                test_df = all_data_df.iloc[training_split_idx:]
+            if progress_callback:
+                progress_callback(f"Processing Model: {model_name}")
+            else:
+                print(f"\nProcessing Model: {model_name}")
+            
+            dataset_metrics_agg = {
+                'sum_auc_roc': 0.0, 'sum_pr_auc': 0.0, 'sum_top_k': 0.0,
+                'total_train_time': 0.0, 'total_pred_time': 0.0,
+                'count': 0
+            }
+
+            for i, dataset_filename in enumerate(dataset_files):
+                current_step += 1
+                if progress_callback:
+                    progress_callback(f"[{model_name}] Dataset {i+1}/{len(dataset_files)}")
+                else:
+                    print(f"  Dataset {i+1}/{len(dataset_files)}: {dataset_filename}")
                 
-                if test_df.empty:
+                dataset_filepath = os.path.join(dataset_folder, dataset_filename)
+
+                try:
+                    all_data_df = prepare_dataset(dataset_filepath)
+                    training_split_idx = extract_training_split_from_filename(dataset_filename)
+                    train_df = all_data_df.iloc[:training_split_idx]
+                    test_df = all_data_df.iloc[training_split_idx:]
+                    
+                    if test_df.empty:
+                        continue
+
+                    train_values = train_df['Value'].values
+                    test_values = test_df['Value'].values
+                    true_test_labels = test_df['is_anomaly'].values
+                    
+                    if len(train_values) > 10:
+                        est_period = estimate_period(train_values)
+                    else:
+                        est_period = 50 
+                    
+                    window_size = int(max(32, min(est_period, 512, len(train_values)//2)))
+                    
+                    init_signature = inspect.signature(ModelClass.__init__)
+                    init_params = init_signature.parameters
+                    
+                    kwargs = {}
+                    if 'window_size' in init_params:
+                        kwargs['window_size'] = window_size
+                    if 'verbose' in init_params:
+                        kwargs['verbose'] = 0
+                    
+                    try:
+                        model_instance = ModelClass(**kwargs)
+                    except Exception as e:
+                        print(f"    Init failed with kwargs {kwargs}: {e}. Retrying without args.")
+                        model_instance = ModelClass()
+                    
+                    start_train = time.time()
+                    model_instance.fit(train_values)
+                    dataset_metrics_agg['total_train_time'] += (time.time() - start_train)
+
+                    start_pred = time.time()
+                    
+                    if model_name == "MatrixProfile" and 'window_size' in inspect.signature(model_instance.score).parameters:
+                        anomaly_scores = model_instance.score(test_values, window_size=window_size)
+                    else:
+                        anomaly_scores = model_instance.score(test_values)
+                    
+                    dataset_metrics_agg['total_pred_time'] += (time.time() - start_pred)
+                    
+                    anomaly_scores = np.nan_to_num(anomaly_scores)
+
+                    if len(anomaly_scores) != len(test_values):
+                        print("    Score length mismatch. Skipping.")
+                        continue
+
+                    ranking = calculate_ranking_metrics(true_test_labels, anomaly_scores)
+                    dataset_metrics_agg['sum_auc_roc'] += ranking['auc_roc']
+                    dataset_metrics_agg['sum_pr_auc'] += ranking['pr_auc']
+                    
+                    top_k_hit = calculate_top_k_overlap(anomaly_scores, true_test_labels, k=None)
+                    dataset_metrics_agg['sum_top_k'] += top_k_hit
+
+                    dataset_metrics_agg['count'] += 1
+
+                    if dataset_metrics_agg['count'] > 0 and (dataset_metrics_agg['count'] % 20 == 0):
+                        if not progress_callback:
+                            print(f"    Stats ({model_name} - {dataset_metrics_agg['count']}): "
+                                f"AUC={dataset_metrics_agg['sum_auc_roc']/dataset_metrics_agg['count']:.3f}, "
+                                f"TopK={dataset_metrics_agg['sum_top_k']/dataset_metrics_agg['count']:.3f}")
+
+                except Exception as e:
+                    print(f"      Error on {dataset_filename}: {e}")
                     continue
 
-                train_values = train_df['Value'].values
-                test_values = test_df['Value'].values
-                true_test_labels = test_df['is_anomaly'].values
-                
-                if len(train_values) > 10:
-                    est_period = estimate_period(train_values)
-                else:
-                    est_period = 50 
-                
-                window_size = int(max(32, min(est_period, 512, len(train_values)//2)))
-                
-                init_signature = inspect.signature(ModelClass.__init__)
-                init_params = init_signature.parameters
-                
-                kwargs = {}
-                if 'window_size' in init_params:
-                    kwargs['window_size'] = window_size
-                if 'verbose' in init_params:
-                    kwargs['verbose'] = 0
-                
-                try:
-                    model_instance = ModelClass(**kwargs)
-                except Exception as e:
-                    print(f"    Init failed with kwargs {kwargs}: {e}. Retrying without args.")
-                    model_instance = ModelClass()
-                
-                start_train = time.time()
-                model_instance.fit(train_values)
-                dataset_metrics_agg['total_train_time'] += (time.time() - start_train)
-
-                start_pred = time.time()
-                
-                if model_name == "MatrixProfile" and 'window_size' in inspect.signature(model_instance.score).parameters:
-                     anomaly_scores = model_instance.score(test_values, window_size=window_size)
-                else:
-                     anomaly_scores = model_instance.score(test_values)
-                
-                dataset_metrics_agg['total_pred_time'] += (time.time() - start_pred)
-                
-                anomaly_scores = np.nan_to_num(anomaly_scores)
-
-                if len(anomaly_scores) != len(test_values):
-                     print("    Score length mismatch. Skipping.")
-                     continue
-
-                ranking = calculate_ranking_metrics(true_test_labels, anomaly_scores)
-                dataset_metrics_agg['sum_auc_roc'] += ranking['auc_roc']
-                dataset_metrics_agg['sum_pr_auc'] += ranking['pr_auc']
-                
-                top_k_hit = calculate_top_k_overlap(anomaly_scores, true_test_labels, k=None)
-                dataset_metrics_agg['sum_top_k'] += top_k_hit
-
-                dataset_metrics_agg['count'] += 1
-
-                if dataset_metrics_agg['count'] > 0 and (dataset_metrics_agg['count'] % 20 == 0):
-                   if not progress_callback:
-                        print(f"    Stats ({model_name} - {dataset_metrics_agg['count']}): "
-                              f"AUC={dataset_metrics_agg['sum_auc_roc']/dataset_metrics_agg['count']:.3f}, "
-                              f"TopK={dataset_metrics_agg['sum_top_k']/dataset_metrics_agg['count']:.3f}")
-
-            except Exception as e:
-                print(f"      Error on {dataset_filename}: {e}")
+            if dataset_metrics_agg['count'] == 0:
+                print(f"No valid results for {model_name}")
                 continue
 
-        if dataset_metrics_agg['count'] == 0:
-            print(f"No valid results for {model_name}")
-            continue
+            count = dataset_metrics_agg['count']
+            avg_auc = dataset_metrics_agg['sum_auc_roc'] / count
+            avg_pr = dataset_metrics_agg['sum_pr_auc'] / count
+            avg_topk = dataset_metrics_agg['sum_top_k'] / count
+            avg_train_time = dataset_metrics_agg['total_train_time'] / count
+            avg_pred_time = dataset_metrics_agg['total_pred_time'] / count
 
-        count = dataset_metrics_agg['count']
-        res = {
-            "Model": model_name,
-            "AUC-ROC": dataset_metrics_agg['sum_auc_roc'] / count,
-            "PR-AUC": dataset_metrics_agg['sum_pr_auc'] / count,
-            "Top-K Hit Rate": dataset_metrics_agg['sum_top_k'] / count,
-            "Avg Train Time (s)": dataset_metrics_agg['total_train_time'] / count,
-            "Avg Predict Time (s)": dataset_metrics_agg['total_pred_time'] / count,
-            "Datasets Processed": count
-        }
-        
-        save_path = save_result(res)
-        if not progress_callback:
-            print(f"  Final {model_name}: AUC={res['AUC-ROC']:.3f}, Top-K={res['Top-K Hit Rate']:.2f}")
+            res = {
+                "Model": model_name,
+                "AUC-ROC": avg_auc,
+                "PR-AUC": avg_pr,
+                "Top-K Hit Rate": avg_topk,
+                "Avg Train Time (s)": avg_train_time,
+                "Avg Predict Time (s)": avg_pred_time,
+                "Datasets Processed": count
+            }
+            
+            save_path = save_result(res)
+            if not progress_callback:
+                print(f"  Final {model_name}: AUC={res['AUC-ROC']:.3f}, Top-K={res['Top-K Hit Rate']:.2f}")
+
+            # --- MLFLOW LOG METRICS ---
+            mlflow.log_metric("auc_roc", avg_auc)
+            mlflow.log_metric("pr_auc", avg_pr)
+            mlflow.log_metric("top_k_hit_rate", avg_topk)
+            mlflow.log_metric("train_time_s", avg_train_time)
+            mlflow.log_metric("predict_time_s", avg_pred_time)
+
+            # --- LOG ARTIFACTS ---
+            temp_res_file = f"temp_res_{model_name}.json"
+            with open(temp_res_file, 'w') as f:
+                json.dump(res, f, indent=4)
+            
+            mlflow.log_artifact(temp_res_file)
+            if os.path.exists(temp_res_file):
+                os.remove(temp_res_file)
 
 def run_pipeline():
     parser = argparse.ArgumentParser(description="Run Anomaly Detection Benchmark")
@@ -300,7 +333,7 @@ def run_pipeline():
         num_to_run = 200
         print(f"Running on {num_to_run} smallest datasets (excluding largest) for efficiency.")
     
-    run_benchmark(models_to_run, num_datasets=num_to_run)
+    run_benchmark(models_to_run, num_datasets=num_to_run, exclude_heavy=args.exclude_heavy)
 
 if __name__ == "__main__":
     run_pipeline()

@@ -34,8 +34,35 @@ This benchmark utilizes the **Hexagon ML/UCR Time Series Anomaly Detection datas
    _Alternatively, use the CLI to run batch experiments (e.g., all deep learning models):_
 
    ```bash
-   python3 -m src.run_all --group deep
+   python3 -m src.benchmark --group deep
    ```
+
+## Models Included
+
+The suite covers the following detectors:
+
+| Category          | Models                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------- |
+| **Traditional**   | • Isolation Forest<br>• Z-Score<br>• Local Outlier Factor (LOF)<br>• Matrix Profile Discords |
+| **Deep Learning** | • Long Short-Term Memory (LSTM)<br>• Autoencoder<br>• Temporal Convolutional Network (TCN)   |
+
+## Performance Metrics
+
+Models are evaluated using rigorous ranking and classification metrics:
+
+- **AUC-ROC** (Area Under the ROC Curve)
+- **PR-AUC** (Area Under the Precision-Recall Curve)
+- **Top-K Hit Rate** (Oracle Top-K accuracy)
+
+
+## MLflow Experiment Tracking
+
+The benchmark automatically logs all experiments with MLflow. To visualize the metrics and compare the models:
+
+1) Start the MLflow UI: `mlflow ui`
+2) Open `http://127.0.0.1:5000`.
+
+Metrics are also automatically saved as JSON files in the `results/` directory.
 
 ## Docker Support
 
@@ -58,6 +85,7 @@ docker run --rm \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v $(pwd)/results:/app/results \
+  -v $(pwd)/mlruns:/app/mlruns \
   tsad-bench
 ```
 
@@ -70,35 +98,14 @@ To bypass the GUI and run the command-line benchmark directly, override the entr
 ```bash
 docker run --rm \
   -v $(pwd)/results:/app/results \
+  -v $(pwd)/mlruns:/app/mlruns \
   --entrypoint python \
-  tsad-bench -m src.run_all --group deep
+  tsad-bench -m src.benchmark --group deep
 ```
-
-## Models Included
-
-The suite covers the following detectors:
-
-| Category          | Models                                                                                       |
-| ----------------- | -------------------------------------------------------------------------------------------- |
-| **Traditional**   | • Isolation Forest<br>• Z-Score<br>• Local Outlier Factor (LOF)<br>• Matrix Profile Discords |
-| **Deep Learning** | • Long Short-Term Memory (LSTM)<br>• Autoencoder<br>• Temporal Convolutional Network (TCN)   |
-
-## Performance Metrics
-
-Models are evaluated using rigorous ranking and classification metrics:
-
-- **AUC-ROC** (Area Under the ROC Curve)
-- **PR-AUC** (Area Under the Precision-Recall Curve)
-- **Top-K Hit Rate** (Oracle Top-K accuracy)
 
 ## GUI Preview
 
 ![GUI Screenshot](assets/gui.png)
-
-## Results & Visualization
-
-- **Results:** Metrics are automatically saved as JSON files in the `results/` directory.
-- **Visualization:** Use the `notebooks/02_visualizations.ipynb` notebook to analyze performance and generate plots.
 
 ## Contributions
 

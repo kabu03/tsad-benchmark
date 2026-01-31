@@ -6,7 +6,7 @@ import sys
 
 sys.path.append(os.getcwd())
 
-from src.run_all import MODEL_REGISTRY, run_benchmark
+from src.benchmark import MODEL_REGISTRY, run_benchmark
 
 class ModernBenchmarkGUI:
     def __init__(self, root):

@@ -10,3 +10,4 @@ venv/
 .gitignore
 .vscode/
 results/
+mlruns/
