@@ -25,16 +25,17 @@ This benchmark utilizes the **Hexagon ML/UCR Time Series Anomaly Detection datas
    pip install -r requirements.txt
    ```
 
-3. **Run the GUI:**
+3. **Run the program:**
 
+Either run the GUI:
    ```bash
    python3 src/gui.py
    ```
-
-   _Alternatively, use the CLI to run batch experiments (e.g., all deep learning models):_
+Or use the CLI to run specific experiments. Examples:
 
    ```bash
-   python3 -m src.benchmark --group deep
+   python3 -m src.benchmark --group deep # runs all deep learning models
+   python3 -m src.benchmark --models LSTM --num_datasets 50 # runs LSTM on the 50 smallest datasets
    ```
 
 ## Models Included
@@ -91,9 +92,7 @@ docker run --rm \
 
 _(Note: If you encounter permission errors, run `xhost +local:docker` on your host machine before running the container.)_
 
-### 3. Run the CLI (Headless)
-
-To bypass the GUI and run the command-line benchmark directly, override the entrypoint:
+Optionally, you can bypass the GUI and run the command-line benchmark directly, by overriding the entrypoint:
 
 ```bash
 docker run --rm \

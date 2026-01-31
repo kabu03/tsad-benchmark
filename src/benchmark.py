@@ -1,12 +1,23 @@
 import time
 import os
+import random
 import mlflow
+
+# Set global seeds for reproducibility
+SEED = 42
+os.environ['PYTHONHASHSEED'] = str(SEED)
+random.seed(SEED)
 
 # Suppress TensorFlow logs (MUST be before importing keras/tensorflow)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 import numpy as np
+import tensorflow as tf
+
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
+
 import pandas as pd
 import os
 import json
@@ -110,10 +121,17 @@ def save_result(result, results_dir="results"):
                 
     return os.path.abspath(json_filename)
 
-def run_benchmark(models_to_run, num_datasets=250, progress_callback=None, exclude_heavy=False):
+def run_benchmark(models_to_run, num_datasets=250, progress_callback=None):
     """
     Modular function to run the benchmark.
     """
+    if not (1 <= num_datasets <= 250):
+        error_msg = f"Error: num_datasets must be between 1 and 250. Got {num_datasets}."
+        print(error_msg)
+        if progress_callback:
+            progress_callback(error_msg)
+        return
+
     dataset_folder = "data"
     if not os.path.isdir(dataset_folder):
         print(f"Error: Dataset folder not found at {os.path.abspath(dataset_folder)}")
@@ -158,7 +176,6 @@ def run_benchmark(models_to_run, num_datasets=250, progress_callback=None, exclu
             # Log Parameters (Configuration)
             mlflow.log_param("model_class", model_name)
             mlflow.log_param("dataset_count", len(dataset_files))
-            mlflow.log_param("exclude_heavy", exclude_heavy)
 
             if progress_callback:
                 progress_callback(f"Processing Model: {model_name}")
@@ -172,6 +189,11 @@ def run_benchmark(models_to_run, num_datasets=250, progress_callback=None, exclu
             }
 
             for i, dataset_filename in enumerate(dataset_files):
+                # Ensure reproducibility per dataset
+                random.seed(SEED)
+                np.random.seed(SEED)
+                tf.random.set_seed(SEED)
+
                 current_step += 1
                 if progress_callback:
                     progress_callback(f"[{model_name}] Dataset {i+1}/{len(dataset_files)}")
@@ -208,6 +230,8 @@ def run_benchmark(models_to_run, num_datasets=250, progress_callback=None, exclu
                         kwargs['window_size'] = window_size
                     if 'verbose' in init_params:
                         kwargs['verbose'] = 0
+                    if 'random_state' in init_params:
+                        kwargs['random_state'] = SEED
                     
                     try:
                         model_instance = ModelClass(**kwargs)
@@ -298,7 +322,7 @@ def run_pipeline():
     parser = argparse.ArgumentParser(description="Run Anomaly Detection Benchmark")
     parser.add_argument("--models", type=str, help="Comma separated list of model names to run (e.g. LSTM,TCN)")
     parser.add_argument("--group", type=str, choices=["all", "trad", "deep"], help="Run a specific group of models")
-    parser.add_argument("--exclude_heavy", action="store_true", help="Exclude the 50 largest datasets to speed up deep learning")
+    parser.add_argument("--num_datasets", type=int, help="Number of datasets to use (max 250, selected by smallest size first)")
     args = parser.parse_args()
 
     models_to_run = []
@@ -327,13 +351,7 @@ def run_pipeline():
 
     print(f"\nSelected Models: {[n for n, _ in models_to_run]}")
     
-    num_to_run = 250
-    has_dl = any(name in ["LSTM", "Autoencoder", "TCN"] for name, _ in models_to_run)
-    if args.exclude_heavy or (has_dl and not args.models and not args.group): 
-        num_to_run = 200
-        print(f"Running on {num_to_run} smallest datasets (excluding largest) for efficiency.")
-    
-    run_benchmark(models_to_run, num_datasets=num_to_run, exclude_heavy=args.exclude_heavy)
+    run_benchmark(models_to_run, num_datasets=args.num_datasets)
 
 if __name__ == "__main__":
     run_pipeline()
