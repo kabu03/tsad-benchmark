@@ -37,9 +37,46 @@ This benchmark utilizes the **Hexagon ML/UCR Time Series Anomaly Detection datas
    python3 -m src.run_all --group deep
    ```
 
+## Docker Support
+
+You can run the program in an isolated container.
+
+### 1. Build the image
+
+```bash
+docker build -t tsad-bench .
+```
+
+### 2. Run the GUI (Default)
+
+To view the GUI from within the container, you must share your X11 display.
+
+**Linux Users:**
+
+```bash
+docker run --rm \
+  -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $(pwd)/results:/app/results \
+  tsad-bench
+```
+
+_(Note: If you encounter permission errors, run `xhost +local:docker` on your host machine before running the container.)_
+
+### 3. Run the CLI (Headless)
+
+To bypass the GUI and run the command-line benchmark directly, override the entrypoint:
+
+```bash
+docker run --rm \
+  -v $(pwd)/results:/app/results \
+  --entrypoint python \
+  tsad-bench -m src.run_all --group deep
+```
+
 ## Models Included
 
-The suite covers a wide spectrum of detectors:
+The suite covers the following detectors:
 
 | Category          | Models                                                                                       |
 | ----------------- | -------------------------------------------------------------------------------------------- |

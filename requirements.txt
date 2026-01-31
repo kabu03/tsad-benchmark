@@ -1,6 +1,6 @@
-numpy==2.4.1
-pandas==3.0.0
-scikit_learn==1.8.0
-scipy==1.17.0
-stumpy==1.13.0
-tensorflow==2.19.0
+numpy
+pandas
+scikit-learn
+scipy
+stumpy
+tensorflow
